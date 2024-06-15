@@ -14,11 +14,12 @@ download this project
 
 Open `index.html`, find the code `Cesium.Ion.defaultAccessToken` and replace it with your token.
 
-run http server 
 
-```python -m http.server portNumber```
+run http server on dir of project:
 
-open url http://127.0.0.1:portNumber/index.html
+```python -m http.server <portNumber>```
+
+open url `http://127.0.0.1:<portNumber>/index.html`
 
 ![preview](images/preview.png)
 
