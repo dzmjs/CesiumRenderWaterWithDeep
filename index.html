@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Draw Triangle on Cesium</title>
+    <script src="socket.io.min.js" version='4.7.5'></script>
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.97/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.97/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <style>
+        html, body, #cesiumContainer {
+            width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
+        }
+        ul,li{
+            list-style: none;
+        }
+    </style>
+</head>
+<body>
+<div style="position: absolute;top: 0;left: 0;background: white;z-index: 102">
+</div>
+<div id="cesiumContainer"></div>
+<div id="mousePosition" style="position: absolute; bottom: 10px; left: 10px; padding: 5px; background-color: rgba(42, 42, 42, 0.8); color: white; font-family: sans-serif; font-size: 14px;z-index:101"></div>
+</body>
+<script>
+
+	// replace token
+    Cesium.Ion.defaultAccessToken = 'your Cesium Token';
+    
+
+    let rectangle, pointObj,customShader,myWaterMaterial,cesiumWater;
+    
+    var currentIndex = 0;
+    // Initialize Cesium Viewer
+    var viewer = new Cesium.Viewer('cesiumContainer',{
+        //绝对不能加高程，会影响面网格的渲染
+        /*terrainProvider : new Cesium.CesiumTerrainProvider({
+            url: "http://data.marsgis.cn/terrain",
+        })*/
+    });
+
+    
+    var target = Cesium.Cartesian3.fromDegrees(118.684325, 41.906484, 5000);
+    viewer.camera.flyTo({
+	    destination: target,
+	    orientation: {
+	        heading: Cesium.Math.toRadians(0.0),  // east, default value is 0.0 (north)
+	        pitch: Cesium.Math.toRadians(-90.0), // look straight down
+	        roll: 0.0                             // default value
+	    },
+	    duration: 3 // duration of flight in seconds
+	});
+    showMousePosition();
+    createPrimitives(viewer.scene);
+
+    function showMousePosition() {
+        var mousePositionDiv = document.getElementById('mousePosition');
+
+        viewer.scene.canvas.addEventListener('mousemove', function(event) {
+            var ellipsoid = viewer.scene.globe.ellipsoid;
+            var movement = new Cesium.Cartesian2(event.clientX, event.clientY);
+            var cartesian = viewer.camera.pickEllipsoid(movement, ellipsoid);
+            if (cartesian) {
+                var cartographic = Cesium.Ellipsoid.WGS84.cartesianToCartographic(cartesian);
+                var longitudeString = Cesium.Math.toDegrees(cartographic.longitude).toFixed(6);
+                var latitudeString = Cesium.Math.toDegrees(cartographic.latitude).toFixed(6);
+                mousePositionDiv.innerHTML = 'Lon: ' + longitudeString + '°&nbsp;Lat: ' + latitudeString + '°';
+            } else {
+                mousePositionDiv.innerHTML = 'Out of bounds';
+            }
+        });
+    }
+
+    function createPrimitives(scene) {
+        myWaterMaterial = new Cesium.Material({
+            fabric: {
+                uniforms: {
+                    depthMap: './images/depth_6.png',
+                    baseWaterColor: new Cesium.Color(64 / 255.0, 157 / 255.0, 253 / 255.0, 0.5),
+                    blendColor: new Cesium.Color(0.0, 1.0, 0.7, 0.5),
+                    normalMap: './images/waterNormals.jpg', // Change to your normal map
+                    frequency: 800.0,
+                    animationSpeed: 0.01,
+                    amplitude: 3,
+                    specularIntensity: 10,
+                    fadeFactor: 1,
+                    specularMap: "czm_defaultImage" // default Value, suggest do NOT change
+                },
+                // 其他效果，见本html末尾
+                source: `
+                    uniform sampler2D specularMap;
+                    uniform sampler2D normalMap;
+                    uniform sampler2D depthMap;
+                    uniform vec4 baseWaterColor;
+                    uniform vec4 blendColor;
+                    uniform float frequency;
+                    uniform float animationSpeed;
+                    uniform float amplitude;
+                    uniform float specularIntensity;
+                    uniform float fadeFactor;
+                    czm_material czm_getMaterial(czm_materialInput materialInput)
+                    {
+                        czm_material material = czm_getDefaultMaterial(materialInput);
+                        float time = czm_frameNumber * animationSpeed;
+                        float fade = max(1.0, (length(materialInput.positionToEyeEC) / 10000000000.0) * frequency * fadeFactor);
+                        float specularMapValue = texture2D(specularMap, materialInput.st).r;
+                        vec4 noise = czm_getWaterNoise(normalMap, materialInput.st * frequency, time, 0.0);
+                        vec3 normalTangentSpace = noise.xyz * vec3(1.0, 1.0, (1.0 / amplitude));
+                        normalTangentSpace.xy /= fade;
+                        normalTangentSpace = mix(vec3(0.0, 0.0, 50.0), normalTangentSpace, specularMapValue);
+                        normalTangentSpace = normalize(normalTangentSpace);
+                        float tsPerturbationRatio = clamp(dot(normalTangentSpace, vec3(0.0, 0.0, 1.0)), 0.0, 1.0);
+                        material.alpha = mix(blendColor.a, baseWaterColor.a, specularMapValue) * specularMapValue;
+                        material.diffuse = mix(blendColor.rgb, baseWaterColor.rgb, specularMapValue);
+                        material.diffuse += (0.1 * tsPerturbationRatio);
+                        material.diffuse = material.diffuse;
+                        material.normal = normalize(materialInput.tangentToEyeMatrix * normalTangentSpace);
+                        material.specular = specularIntensity;
+                        material.shininess = 10.0;
+                        // handle alpha to hidden other area
+                        // show(or clip) the area of geometry by depthMap's alpha
+                        // made by dzm
+                        float depthMapShow = texture2D(depthMap, materialInput.st).a;
+                        if(depthMapShow < 0.5){
+                            material.alpha = depthMapShow;
+                        }
+                        // set different color by depthMap
+                        // depthMap is gray, means R==G==B, so I select R
+                        float dep = texture2D(depthMap, materialInput.st).r;
+                        if(dep > 0.3){
+                            material.diffuse -= vec3(0.2); // change color, more black
+                        }
+                        if(dep > 0.5){
+                            material.diffuse -= vec3(0.2);
+                        }
+                        if(dep > 0.7){
+                            material.diffuse -= vec3(0.2);
+                        }
+                        if(dep > 0.9){
+                            material.diffuse -= vec3(0.2);
+                        }
+
+                        return material;
+                    }
+            `
+            },
+            translucent: function() {
+                return true;
+            }
+        });
+
+        var p=new Cesium.Primitive({
+            geometryInstances: new Cesium.GeometryInstance({
+                geometry: new Cesium.RectangleGeometry({
+                    rectangle: Cesium.Rectangle.fromDegrees(118.574325, 41.506484, 119.574325, 42.2506484),
+                    // EllipsoidSurfaceAppearance.VERTEX_FORMAT = Cesium.VertexFormat.POSITION_AND_ST;
+                    vertexFormat: Cesium.EllipsoidSurfaceAppearance.VERTEX_FORMAT,
+                })
+            }),
+            appearance: new Cesium.EllipsoidSurfaceAppearance({
+                material: myWaterMaterial
+            })
+        })
+        //console.info(p);
+        // cesiumWater
+        scene.primitives.add(p);
+    }
+    viewer.scene.preRender.addEventListener(function(scene, time) {
+        //myWaterMaterial.uniforms.time += 0.01;
+    });
+
+
+</script>
+</html>
+<!--
+//效果还行的波动效果
+uniform sampler2D image;
+uniform sampler2D next_image;
+uniform float alpha;
+uniform float frequency;
+uniform float animationSpeed;
+uniform float time;
+
+czm_material czm_getMaterial(czm_materialInput materialInput) {
+    czm_material material = czm_getDefaultMaterial(materialInput);
+    vec2 st = materialInput.st;
+
+    // Create a wave effect
+    float wave = sin(frequency * (st.x + st.y + time * animationSpeed));
+    vec4 color = texture2D(image, st + vec2(wave * 0.02, wave * 0.02));
+
+    // Set diffuse and alpha
+    material.diffuse = color.rgb;
+    material.alpha = color.a * alpha;
+
+    return material;
+}
+-->
