@@ -8,24 +8,24 @@ If you have many png format photos, you can animate them.
 3. Copy the generated token and use it in this project.
 
 # install
-download this project
+1. download this project
 
 ```git clone https://github.com/dzmjs/CesiumRenderWaterWithDeep.git```
 
-Open `index.html`, find the code `Cesium.Ion.defaultAccessToken` and replace it with your token.
+2. Open `index.html`, find the code `Cesium.Ion.defaultAccessToken` and replace it with your token.
 
 
-run http server on dir of project:
+3. run http server in direction of project:
 
 ```python -m http.server <portNumber>```
 
-open url `http://127.0.0.1:<portNumber>/index.html`
+4. open url `http://127.0.0.1:<portNumber>/index.html` sometimes you need to wait a minute for loading Cesium.js and tiles.
 
 ![preview](images/preview.png)
 
 # you need to know
-Cesium basic programming, photo RGBA, GLSL basic, DEBUG on chrome
+Cesium basic programming, photo RGBA, GLSL basic([The Book of Shaders](https://thebookofshaders.com/)), DEBUG on chrome
 
-# more information on blog
+# more information
  https://blog.csdn.net/a105411/article/details/139684359
 
